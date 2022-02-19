@@ -1,0 +1,589 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title></title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .test {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -o-user-select: none;
+            user-select: none;
+        }
+    </style>
+
+</head>
+
+<body>
+    <canvas class="showCanvas">
+    </canvas>
+
+
+    <nobr class="modedisplay">游玩模式</nobr>
+    <button type="button"
+        onclick='alert("请通过选择文件按钮选择已经画好的迷宫文件并开始游戏。\n在游玩模式（默认模式）下，你用上下左右方向键操控红色方块，目的是到达蓝色区域，而黑色线条则是阻碍你的墙壁。\n面对重重围困，在地图上放置纸片来改变地形的能力是你取胜的关键。每个纸片都对应一个固定的位置。你可以按键盘上数字1-9中的一个来选择操控第几张纸片，它会放置或拿起于地图上。纸片间会互相重叠，而有部分被你或其它纸片遮挡的纸片是不能拿起的。放置纸片时，纸片也不能遮挡你。\n按shift减速，如果有更多需求请前往设置栏调整。\n就是这些啦，玩的愉快！\n\n绘制地图：\n按e(edit)切换游玩模式与编辑模式。\n你可以用鼠标绘图，按p(pencil)切换为墙，按r(rubber)切换为橡皮，按d(destination)切换为终点色。\n想要创造新的纸片，按a(add)，再用鼠标分别单击新建纸片的左上角与右下角即可。\n想要删除纸片，按t(trash bin)，并输入纸片编号，然后点击确定。\n按b可以删除起点（方便进行折叠操作）（但是要保存地图还是要有起点的），再按b然后单击地图上某个地方可以放置起点。\n当您的作品绘成后，按s即可保存为文件格式。\n\n期待您的作品！")'>帮助</button>
+    <input type="file" onchange="readFile(this)">
+    <nobr class="pen" hidden=true>当前绘制：墙</nobr>
+    <nobr class="clipnum">纸片总数：0</nobr>
+    <nobr class="adding" hidden=true>添加纸片中</nobr>
+
+    </canvas>
+
+    <script>
+        "use strict";
+        // 怎么把帮助和文件打开居右？
+        let canvas = document.querySelector('.showCanvas');
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight - 22;
+        let ctx = canvas.getContext('2d');
+        // ctx.blur = function () {
+        // this.style.borderStyle = "inset";
+        // }
+
+
+        let currentX = 0;
+        let currentY = 0;
+        let pressed = false;
+        let curX = 0;
+        let curY = 0;
+        let prepressed = false;
+        let blockSize = 10;
+        const PENCIL = 0, ERASER = 1, ENDING = 2;
+        let pencolor = PENCIL;
+        const fastSpeed = 8, slowSpeed = 4;
+        let moveSpeed = fastSpeed;
+        const strokeStyle = 'black';
+        ctx.strokeStyle = strokeStyle;
+
+        let editmode = false;
+
+        function Rectangle(x, y, width, height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        function clip(x, y, width, height) {
+            this.fold = false;
+            this.rect = new Rectangle(x, y, width, height);
+            this.img = ctx.createImageData(width, height);
+            let len = this.img.data.length;
+            for (let i = 0; i + 3 < len; i += 4) {
+                this.img.data[i] = 0;
+                this.img.data[i + 1] = 0;
+                this.img.data[i + 2] = 0;
+                this.img.data[i + 3] = 1;
+            }
+            // debugger;
+            // lazyCalcStroke();
+            // cliplinklist.push(cliplinklist.length);
+            // ctx.putImageData(this.img, x, y);
+        }
+
+
+
+        let cliplinklist;
+        let clips = [new clip(0, 0, width, height)];
+        cliplinklist = [0];
+
+        document.onmousemove = function (e) {
+            curX = (window.Event) ? e.pageX : e.clientX + (document.documentElement.scrollLeft ? document.documentElement.scrollLeft : document.body.scrollLeft);
+            curY = (window.Event) ? e.pageY : e.clientY + (document.documentElement.scrollTop ? document.documentElement.scrollTop : document.body.scrollTop);
+        }
+
+        canvas.onmousedown = function () {
+            pressed = true;
+        };
+
+        canvas.onmouseup = function () {
+            pressed = false;
+        }
+
+        let setbegin = false;
+        let hasbegin = true;
+
+        let hasAlreadyWin = false;
+
+
+
+        function cli(i) {
+            return clips[cliplinklist[i]];
+        }
+        function clirect(i) {
+            return cli(i).rect;
+        }
+
+        function lazyCalcStroke() {//刷新各个clip。//整个游戏的关键！算法很漂亮，是O(n)的。
+            let len = cliplinklist.length;
+            let tempCtxList = [];
+            let tctx = createCtx();
+            tctx.putImageData(ctx.getImageData(0, 0, width, height), 0, 0);
+            for (let i = 0; i < len - 1; ++i) {
+                tempCtxList.push(createCtx());//只要不appendchild应该就看不见吧
+            }
+            for (let i = 0; i < len - 1; ++i) {
+                if (i > 0) {
+                    tempCtxList[i].putImageData(tempCtxList[i - 1].getImageData(0, 0, width, height), 0, 0);
+                }
+                tempCtxList[i].putImageData(cli(i).img, clirect(i).x, clirect(i).y);
+            }
+            for (let i = len - 1; i >= 0; --i) {
+                cli(i).img = tctx.getImageData(clirect(i).x, clirect(i).y, clirect(i).width, clirect(i).height);
+                if (i > 0) {
+                    debugger;
+                    tctx.putImageData(tempCtxList[i - 1].getImageData(clirect(i).x, clirect(i).y, clirect(i).width, clirect(i).height), clirect(i).x, clirect(i).y)
+                }
+            }
+        }
+
+
+        function reprint() {//根据现有的cliplinklist列表刷新页面
+            for (let i of cliplinklist) {
+                let cl = clips[i];
+                debugger;
+
+                ctx.putImageData(cl.img, cl.rect.x, cl.rect.y);
+            }
+        }
+
+        function isOverlap(rect1, rect2) {
+            const startX1 = rect1.x,
+                startY1 = rect1.y,
+                endX1 = startX1 + rect1.width,
+                endY1 = startY1 + rect1.height;
+
+            const startX2 = rect2.x,
+                startY2 = rect2.y,
+                endX2 = startX2 + rect2.width,
+                endY2 = startY2 + rect2.height;
+
+            return !(endY2 < startY1 || endY1 < startY2 || startX1 > endX2 || startX2 > endX1);
+        }
+
+        function saveGameObject() {
+            lazyCalcStroke();
+            // let cll = [];
+            // for (let c of clips) {
+            //     let tempCanvas = document.createElement("canvas");
+            //     tempCanvas.width = c.width;
+            //     tempCanvas.height = c.height;
+            //     tempCanvas.hidden = true;
+            //     let hidctx = tempCanvas.getContext('2d');
+            //     hidctx.putImageData(c.img, 0, 0);
+            //     let url = tempCanvas.toDataURL('image/png');
+            //     cll.push({
+            //         fold: c.fold,
+            //         rect: c.rect,
+            //         img : url
+            //     });
+            // }
+            return ({
+                'currentX': currentX,
+                'currentY': currentY,
+                'ImageData': canvas.toDataURL('image/png'),
+                // 'clips': clips//TODO:clips也需要压缩，不过是后话了
+            });
+        }
+
+        function downloadObject() {
+            let obj = saveGameObject();
+            let filename = "maze.data";
+            let blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8" });
+            let url = URL.createObjectURL(blob);
+            let elem = document.createElement("a");
+            elem.href = url;
+            elem.download = filename;
+            elem.click();
+        }
+
+        function createCtx(w = width, h = height, hid = true) {
+            let tempCanvas = document.createElement("canvas");
+            tempCanvas.width = w;
+            tempCanvas.height = h;
+            tempCanvas.hidden = hid;
+            return tempCanvas.getContext('2d');
+        }
+
+        function readFile(input) {
+            let file = input.files[0];
+            let reader = new FileReader();
+            reader.readAsText(file);
+            reader.onload = function () {
+                let go = JSON.parse(reader.result);
+                loadGameObject(go);
+            };
+            reader.onerror = function () {
+                alert("readFile failed!");
+            };
+        }
+
+
+
+
+        let addclip = 2;
+        let xx = 0, yy = 0;
+        canvas.onclick = function (e) {
+            if (editmode) {
+                if (setbegin) {
+                    setbegin = false;
+                    hasbegin = true;
+                    currentX = curX;
+                    currentY = curY;
+                } else
+                    switch (addclip) {
+                        case 0:
+                            addclip++;
+                            xx = curX;
+                            yy = curY;
+                            break;
+                        case 1:
+                            if (!canput(new Rectangle(xx, yy, curX - xx, curY - yy))) {
+                                alert('请先离开此地再新建纸片');
+                                break;
+                            }
+                            if (curX > xx && curY > yy) {
+                                addclip++;
+                                clips.push(new clip(xx, yy, curX - xx, curY - yy));
+                                document.querySelector('.adding').hidden = true;
+                                document.querySelector('.clipnum').innerHTML = '纸片总数：' + (clips.length - 1);
+                            }
+                            break;
+
+                    }
+            }
+        }
+
+        let deleteClipFlag = false;
+
+        let curBlock = new Rectangle(currentX, currentY, blockSize, blockSize);//只在需要的时候才刷一遍X，Y，减小垃圾回收负担
+
+
+        function deleteClipFoldOfFoldIndex(i) {
+            for (let j = i; j < cliplinklist.length - 1; j++) {
+                cliplinklist[j] = cliplinklist[j + 1];
+            }
+            cliplinklist.pop();
+        }
+
+        function canput(rec) {
+            curBlock.x = currentX;
+            curBlock.y = currentY;
+            return !hasbegin || !isOverlap(rec, curBlock);
+        }
+
+        window.document.onkeypress = function (ent) {
+            let event = ent || window.event;
+            let char = String.fromCharCode(event.keyCode);
+            if (char == 'e') {
+                editmode = !editmode;
+                document.querySelector('.modedisplay').innerHTML = editmode ? '编辑模式' : '游玩模式';
+                document.querySelector('.pen').hidden = !editmode;
+            }
+            else
+                if (editmode) {
+                    switch (char) {
+                        case 'p':
+                            pencolor = PENCIL;
+                            ctx.beginPath();
+                            ctx.strokeStyle = 'black';
+                            ctx.lineWidth = 1;
+                            document.querySelector('.pen').innerHTML = '当前绘制：墙';
+                            break;
+                        case 'r':
+                            pencolor = ERASER;
+                            ctx.beginPath();
+                            ctx.strokeStyle = 'white';
+                            ctx.lineWidth = 30;
+                            document.querySelector('.pen').innerHTML = '当前绘制：橡皮';
+                            break;
+                        case 'd':
+                            pencolor = ENDING;
+                            ctx.beginPath();
+                            ctx.strokeStyle = 'blue';
+                            ctx.lineWidth = 5;
+                            document.querySelector('.pen').innerHTML = '当前绘制：终点区';
+                            break;
+
+                        case 'a':
+                            addclip = 0;
+                            document.querySelector('.adding').hidden = false;
+                            break;
+
+                        case 't':
+                            deleteClipFlag = true;
+                            break;
+
+                        case 'b':
+                            if (hasbegin) {
+                                ctx.clearRect(currentX, currentY, blockSize, blockSize);
+                            }
+                            setbegin = !hasbegin;
+                            hasbegin = false;
+
+                            break;//TODO: t (todo)删除折痕 边界禁行 大小控制。
+                    }
+                }
+            if (char == 's') {
+                if (hasbegin) {
+                    downloadObject();
+                } else {
+                    alert('请标注起点以后再保存文件');
+                }
+            }
+
+            if ('1' <= char && char <= '9') {
+                lazyCalcStroke();
+
+                let clipindex = parseInt(char);// 注，0指的是背景板。
+                if (clipindex >= clips.length) {
+                    return;
+                }
+                if (deleteClipFlag) {
+                    if (confirm('你确认删除' + char + '号纸片吗？')) {
+                        if (clips[clipindex].fold) {
+                            for (let i in cliplinklist) {
+                                if (cliplinklist[i] == clipindex) {
+                                    deleteClipFoldOfFoldIndex(i);
+                                    break;
+                                }
+                            }
+                        }
+                        for (let j = clipindex; j < clips.length - 1; j++) {
+                            clips[j] = clips[j + 1];
+                        }
+                        // lazyCalcStroke();
+
+                        clips.pop();
+                        document.querySelector('.clipnum').innerHTML = '纸片总数：' + (clips.length - 1);
+                        deleteClipFlag = false;
+                        reprint();
+                    }
+                    return;
+                }
+                let cl = clips[clipindex];
+                let standerror = !canput(cl.rect);//为了报错顺序起见，就晚点报standerror
+                // alert(`cl.fold=${cl.fold}`);
+                // alert(`standerror=${standerror}`);
+                // alert(cliplinklist);
+                if (cl.fold) {//要打开了
+                    for (let i in cliplinklist) {
+                        if (cliplinklist[i] == clipindex) {
+                            let hasOverlap = false;
+                            for (let j = i + 1; j < cliplinklist.length; ++j) {
+                                hasOverlap ||= isOverlap(cl.rect, cliplinklist[j].rect);//检验后面的块是否与其重叠
+                            }
+                            if (hasOverlap) {
+                                alert("无法移除该纸片，因为上层纸片盖住了该纸片");
+                                return;
+                            }
+                            //如果检验无重叠，则删除i,结束。
+                            if (standerror) {
+                                alert("无法移除该纸片，因为你站在该纸片上面");
+                                return;
+                            }
+                            // lazyCalcStroke();
+
+                            deleteClipFoldOfFoldIndex(i);
+                            cl.fold = false;
+                            reprint();
+                        }
+                    }
+                } else {//盖上纸片
+                    if (standerror) {
+                        alert("无法移除该纸片，因为你站在该纸片上面");
+                        return;
+                    }
+
+                    // lazyCalcStroke();
+                    cl.fold = true;
+                    cliplinklist.push(clipindex);
+                    reprint();
+                    // ctx.putImageData(cl.img, cl.rect.x, cl.rect.y);
+                }
+
+            }
+        }
+
+        let moveL = 0, moveR = 0, moveU = 0, moveD = 0;
+
+        window.onblur = function () {
+            moveD = moveL = moveR = moveU = 0;
+            pressed = false;
+            moveSpeed = fastSpeed;
+        }
+
+        function loadGameObject(gameObject) {
+            currentX = gameObject.currentX;
+            currentY = gameObject.currentY;
+            let img = new Image();
+            img.src = gameObject.ImageData;
+            ctx.clearRect(0, 0, width, height);
+            img.onload = function () {
+                ctx.drawImage(this, 0, 0);
+            }
+            // clips = gameObject.clips;//TODO:clips也需要压缩，不过是后话了
+            cliplinklist = [0];
+            setbegin = false;
+            hasbegin = true;
+            hasAlreadyWin = false;
+            addclip = 2;
+            document.querySelector('.adding').hidden = true;
+            xx = 0, yy = 0;
+            deleteClipFlag = false;
+            moveD = moveL = moveR = moveU = 0;
+            pressed = false;
+            moveSpeed = fastSpeed;
+            //TODO: 重置clist， 重置cli+
+            document.querySelector('.clipnum').innerHTML = '纸片总数：' + (clips.length - 1);
+        }
+
+        window.document.onkeydown = function (ent) {//存在在这里的东西都也需要放在onblur里面
+            let event = ent || window.event;
+            switch (event.keyCode) {
+                case 16: //shift
+                    moveSpeed = slowSpeed;
+                    break;
+                case 37: //左
+                    moveL = 1;
+                    break;
+                case 38: //上
+                    moveU = 1;
+                    break;
+                case 39: //右
+                    moveR = 1;
+                    break;
+                case 40: //下
+                    moveD = 1;
+                    break;
+            }
+        }
+        window.document.onkeyup = function (ent) {
+            let event = ent || window.event;
+            switch (event.keyCode) {
+                case 16: //shift
+                    moveSpeed = fastSpeed;
+                    break;
+                case 37: //左
+                    moveL = 0;
+                    break;
+                case 38: //上
+                    moveU = 0;
+                    break;
+                case 39: //右
+                    moveR = 0;
+                    break;
+                case 40: //下
+                    moveD = 0;
+                    break;
+            }
+        }
+        function hascolor(bx, by, sizeX, sizeY, pr, pg, pb) {
+            let data = ctx.getImageData(bx, by, sizeX, sizeY).data;
+            let len = data.length;
+            for (let i = 0; i + 3 < len; i += 4) {
+                if ((data[i] - pr).toFixed() == 0 && (data[i + 1] - pg).toFixed() == 0 && (data[i + 2] - pb).toFixed() == 0 && (data[i + 3] - 255).toFixed() == 0)
+                    return true;
+            }
+            return false;
+        }
+        function isblocked(bx, by, sizeX, sizeY) {
+            return hascolor(bx, by, sizeX, sizeY, 0, 0, 0);
+        }
+        function wingame() {
+            return hascolor(currentX, currentY, blockSize, blockSize, 0, 0, 255);
+        }
+        function move(moveX, moveY) {
+            let tryX = currentX, tryY = currentY;
+            if (moveX > 0) {
+                tryX += moveSpeed;
+            } else if (moveX < 0) {
+                tryX -= moveSpeed;
+            }
+            if (moveY > 0) {
+                tryY += moveSpeed;
+            } else if (moveY < 0) {
+                tryY -= moveSpeed;
+            }
+            if (moveX == 0 && moveY == 0) {
+
+            } else
+                if (!isblocked(Math.min(currentX, tryX), Math.min(currentY, tryY), blockSize + ((moveX == 0) ? 0 : moveSpeed), blockSize + ((moveY == 0) ? 0 : moveSpeed))) {
+
+                    if (tryX >= 0 && tryX <= width - blockSize) currentX = tryX;
+                    if (tryY >= 0 && tryY <= height - blockSize) currentY = tryY;
+                } else {//平滑处理//但是这会引起震荡反应，不如删了。
+                    if (moveX != 0) {
+                        let va = 0;
+                        if (moveY != -1) {
+                            if (!isblocked(currentX, currentY, blockSize, blockSize + moveSpeed)) {
+                                va += 1;
+                            }
+                        }
+                        if (moveY != 1) {
+                            if (!isblocked(currentX, currentY - moveSpeed, blockSize, blockSize + moveSpeed)) {
+                                va -= 1;
+                            }
+                        }
+                        tryY = currentY + moveSpeed * va;
+                        if (tryY >= 0 && tryY <= height - blockSize) currentY = tryY;
+                        if (va != 0) return;
+                    }
+                    if (moveY != 0) {
+                        let va = 0;
+                        if (moveX != -1) {
+                            if (!isblocked(currentX, currentY, blockSize + moveSpeed, blockSize)) {
+                                va += 1;
+                            }
+                        }
+                        if (moveX != 1) {
+                            if (!isblocked(currentX - moveSpeed, currentY, blockSize + moveSpeed, blockSize)) {
+                                va -= 1;
+                            }
+                        }
+                        tryX = currentX + moveSpeed * va;
+                        if (tryX >= 0 && tryX <= width - blockSize) currentX = tryX;
+                    }
+                }
+
+        }
+        function loop() {
+            if (hasbegin) {
+                ctx.clearRect(currentX, currentY, blockSize, blockSize);
+                move(moveR - moveL, moveD - moveU);
+            }
+
+            if (editmode) {
+                if (pressed) {
+                    if (prepressed) {
+                        ctx.lineTo(curX, curY);
+                        ctx.stroke();
+                    } else {
+                        ctx.moveTo(curX, curY);
+                    }
+                }
+                prepressed = pressed;
+            }
+
+            if (hasbegin) {
+                if (!editmode && !hasAlreadyWin && wingame()) {
+                    alert("You win the game!");
+                    hasAlreadyWin = true;
+                }
+                ctx.fillStyle = 'rgb(255, 0, 0)';
+                ctx.fillRect(currentX, currentY, blockSize, blockSize);
+            }
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+
+</body>
+
+</html>
